@@ -292,12 +292,26 @@ code {
   text-align: center;
 }
 
+.hero-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 13px;
+  border-radius: 999px;
+  background: var(--orchid-soft);
+  border: 1px solid var(--border-strong);
+  color: var(--orchid);
+  font-size: 12.5px;
+  font-weight: 600;
+  margin-bottom: 18px;
+}
+
 .hero-title {
   margin: 0 0 14px;
-  max-width: 680px;
-  font-size: clamp(30px, 4.4vw, 44px);
+  max-width: 740px;
+  font-size: clamp(28px, 4.1vw, 42px);
   font-weight: 700;
-  line-height: 1.12;
+  line-height: 1.14;
   letter-spacing: -0.03em;
   color: var(--text);
 }
@@ -729,6 +743,10 @@ code {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+}
+
+.bento-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .bento-card {

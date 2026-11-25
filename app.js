@@ -64,18 +64,11 @@ const els = {
   backToUploadBtn: $("backToUploadBtn"),
   landingView: $("landingView"),
   workspaceView: $("workspaceView"),
-  inputModeTabs: $("inputModeTabs"),
   audioInputPanel: $("audioInputPanel"),
-  srtInputPanel: $("srtInputPanel"),
   audioDropzone: $("audioDropzone"),
   audioFileInput: $("audioFileInput"),
   audioDropTitle: $("audioDropTitle"),
   audioDropSub: $("audioDropSub"),
-  srtDropzone: $("srtDropzone"),
-  srtFileInput: $("srtFileInput"),
-  srtDropTitle: $("srtDropTitle"),
-  srtDropSub: $("srtDropSub"),
-  srtPasteInput: $("srtPasteInput"),
   heroVariantSelector: $("heroVariantSelector"),
   groqKeyField: $("groqKeyField"),
   groqKeyInput: $("groqKeyInput"),
@@ -89,7 +82,6 @@ const els = {
   modelSelect: $("modelSelect"),
   promptInput: $("promptInput"),
   startTranscribeBtn: $("startTranscribeBtn"),
-  processSrtBtn: $("processSrtBtn"),
   progressBox: $("progressBox"),
   progressText: $("progressText"),
   progressPct: $("progressPct"),
@@ -442,29 +434,10 @@ async function startAudioTranscription() {
   }
 }
 
-// ── Existing SRT Import ──────────────────────────────────────────────────
-async function processExistingSrt(customText = null, customName = null) {
-  let content = "";
-  let fname = customName || "napisy.srt";
-
-  if (customText !== null) {
-    content = customText;
-  } else if (state.srtFile) {
-    content = await state.srtFile.text();
-    fname = state.srtFile.name;
-  } else if (els.srtPasteInput.value.trim()) {
-    content = els.srtPasteInput.value.trim();
-    fname = "wklejone_napisy.srt";
-  } else {
-    showToast("Wybierz plik .srt lub wklej jego treść.");
-    return;
-  }
-
-  const { words, hadBold } = parseSrtToWords(content);
-  if (!words.length) {
-    showToast("Nie udało się odczytać żadnych napisów z podanego SRT.");
-    return;
-  }
+// ── Demo SRT Loader (wewnętrzny podgląd przykładowy) ─────────────────────
+function loadDemoSrt(srtContent, fname) {
+  const { words, hadBold } = parseSrtToWords(srtContent);
+  if (!words.length) return;
 
   state.originalFileName = fname;
   state.baseName = safeBaseName(fname);
@@ -480,7 +453,7 @@ async function processExistingSrt(customText = null, customName = null) {
 
   reformatLive();
   showWorkspaceView();
-  showToast(`Przełamano SRT (${state.result.report.cue_count} napisów)`);
+  showToast(`Załadowano demo (${state.result.report.cue_count} napisów)`);
 }
 
 // ── Rendering Workspace ──────────────────────────────────────────────────
@@ -761,42 +734,12 @@ function bindDropzone(zoneEl, inputEl, onFile) {
   });
 }
 
-function setInputMode(mode) {
-  state.inputMode = mode;
-  els.inputModeTabs.querySelectorAll(".mode-pill").forEach((b) => {
-    b.classList.toggle("active", b.dataset.mode === mode);
-  });
-  els.audioInputPanel.style.display = mode === "audio" ? "flex" : "none";
-  els.srtInputPanel.style.display = mode === "srt" ? "flex" : "none";
-}
-
 bindDropzone(els.audioDropzone, els.audioFileInput, (file) => {
-  if (file.name.toLowerCase().endsWith(".srt")) {
-    state.srtFile = file;
-    setInputMode("srt");
-    els.srtDropzone.classList.add("has-file");
-    els.srtDropTitle.textContent = `✓ ${file.name}`;
-    els.srtDropSub.textContent = formatBytes(file.size);
-    processExistingSrt();
-    return;
-  }
   state.audioFile = file;
   els.audioDropzone.classList.add("has-file");
   els.audioDropTitle.textContent = `✓ ${file.name}`;
   els.audioDropSub.textContent = `${formatBytes(file.size)} · gotowy do transkrypcji`;
   els.startTranscribeBtn.disabled = false;
-});
-
-bindDropzone(els.srtDropzone, els.srtFileInput, (file) => {
-  state.srtFile = file;
-  els.srtDropzone.classList.add("has-file");
-  els.srtDropTitle.textContent = `✓ ${file.name}`;
-  els.srtDropSub.textContent = `${formatBytes(file.size)} · kliknij przycisk poniżej, aby przełamać`;
-});
-
-els.inputModeTabs.addEventListener("click", (e) => {
-  const btn = e.target.closest(".mode-pill");
-  if (btn) setInputMode(btn.dataset.mode);
 });
 
 els.heroVariantSelector.addEventListener("click", (e) => {
@@ -827,7 +770,6 @@ els.toggleFixesBtn.addEventListener("click", () => {
 });
 
 els.startTranscribeBtn.addEventListener("click", startAudioTranscription);
-els.processSrtBtn.addEventListener("click", () => processExistingSrt());
 
 // Navigation back to upload
 els.backToUploadBtn.addEventListener("click", showLandingView);
@@ -954,7 +896,7 @@ function loadDemo() {
   els.fixesInput.value =
     "IBMI. => i BMI.\ntwarzy czaszki => twarzoczaszki\nortodonatycznej => ortognatycznej";
   setVariant("vertical", false);
-  processExistingSrt(DEMO_SRT, "demo_ortodonta.srt");
+  loadDemoSrt(DEMO_SRT, "demo_ortodonta.srt");
 }
 
 els.loadDemoBtn.addEventListener("click", loadDemo);
