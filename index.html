@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./styles.css?v=4" />
 </head>
 <body>
   <!-- ───────────────────────── FIXED HEADER ───────────────────────── -->
@@ -92,37 +92,20 @@
               </div>
             </div>
 
-            <!-- Język + Tryb -->
-            <div class="field-row-2">
-              <div class="field-group">
-                <label class="field-label" for="languageSelect">Język nagrania</label>
-                <select id="languageSelect" class="select-clean">
-                  <option value="pl" selected>🇵🇱 Polski (zoptymalizowany)</option>
-                  <option value="auto">🌐 Wykryj automatycznie</option>
-                  <option value="en">🇬🇧 English</option>
-                  <option value="de">🇩🇪 Deutsch</option>
-                  <option value="uk">🇺🇦 Українська</option>
-                  <option value="fr">🇫🇷 Français</option>
-                  <option value="es">🇪🇸 Español</option>
-                  <option value="it">🇮🇹 Italiano</option>
-                  <option value="ru">🇷🇺 Русский</option>
-                </select>
-              </div>
-
-              <div class="field-group">
-                <label class="field-label" for="modelSelect">Tryb transkrypcji</label>
-                <select id="modelSelect" class="select-clean">
-                  <option value="scribe_v2" selected>Dokładny (ElevenLabs Scribe v2)</option>
-                  <option value="whisper-large-v3">Standardowy (Whisper)</option>
-                  <option value="whisper-large-v3-turbo">Szybki (kiedy audio jest wyraźne)</option>
-                </select>
-              </div>
-            </div>
-
-            <!-- Pole widoczne tylko gdy WORKER_URL jest pusty (tryb BYOK) -->
-            <div class="field-group" id="groqKeyField" style="display:none;">
-              <label class="field-label" for="groqKeyInput">Groq API Key <span class="label-hint">(zapisywany tylko lokalnie w przeglądarce)</span></label>
-              <input type="password" id="groqKeyInput" class="input-clean" placeholder="gsk_… (darmowy klucz z console.groq.com)" autocomplete="off" />
+            <!-- Język nagrania -->
+            <div class="field-group">
+              <label class="field-label" for="languageSelect">Język nagrania</label>
+              <select id="languageSelect" class="select-clean">
+                <option value="pl" selected>🇵🇱 Polski (zoptymalizowany)</option>
+                <option value="auto">🌐 Wykryj automatycznie</option>
+                <option value="en">🇬🇧 English</option>
+                <option value="de">🇩🇪 Deutsch</option>
+                <option value="uk">🇺🇦 Українська</option>
+                <option value="fr">🇫🇷 Français</option>
+                <option value="es">🇪🇸 Español</option>
+                <option value="it">🇮🇹 Italiano</option>
+                <option value="ru">🇷🇺 Русский</option>
+              </select>
             </div>
 
             <!-- Ukryte domyślnie Zaawansowane opcje -->
@@ -239,8 +222,8 @@
             <p>Poziom 16:9 buduje dłuższe, wyważone zdania (maks. 13 słów, min. 2 s), które DaVinci Resolve sam estetycznie łamie na 2 linie. Pion 9:16 tworzy krótkie, dynamiczne plansze (dom. 1 linia, maks. 16 znaków ze spacjami i <code>&lt;b&gt;</code>) z twardym przenoszeniem sierot.</p>
           </details>
           <details class="faq-item">
-            <summary><span class="faq-q">Kiedy wybrać tryb „Dokładny”, a kiedy „Szybki”?</span><span class="faq-idx">(3)</span></summary>
-            <p>Tryb <strong>Dokładny</strong> najlepiej radzi sobie z językiem polskim, gorszym mikrofonem, muzyką w tle i trudnymi nazwami. Tryb <strong>Szybki</strong> sprawdzi się świetnie, kiedy audio jest czyste i wyraźne (np. mikrofon krawatowy lub studyjny).</p>
+            <summary><span class="faq-q">Czy mogę poprawić nazwy własne i literówki przed pobraniem .SRT?</span><span class="faq-idx">(3)</span></summary>
+            <p>Tak — przed transkrypcją możesz wpisać trudne nazwy marek lub terminy w <strong>Zaawansowanych opcjach</strong>, a po transkrypcji poprawić dowolny napis bezpośrednio w edytorze lub hurtowo przez korekty <code>--fix</code> (z odsłuchem każdego zdania).</p>
           </details>
           <details class="faq-item">
             <summary><span class="faq-q">Co dzieje się z moimi plikami audio i wideo?</span><span class="faq-idx">(4)</span></summary>
@@ -252,7 +235,7 @@
 
     <footer class="footer">
       <div class="container footer-inner">
-        <span>SRT Studio · Transkrypcja Whisper i profesjonalne napisy SRT</span>
+        <span>SRT Studio · Transkrypcja AI i profesjonalne napisy SRT</span>
         <button type="button" id="footerDemoBtn" class="link-subtle">Otwórz przykładowy projekt →</button>
       </div>
     </footer>
@@ -503,7 +486,7 @@
 
   <div id="toast" class="toast"></div>
 
-  <script src="./config.js"></script>
-  <script type="module" src="./app.js"></script>
+  <script src="./config.js?v=4"></script>
+  <script type="module" src="./app.js?v=4"></script>
 </body>
 </html>

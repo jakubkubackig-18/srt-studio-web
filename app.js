@@ -1,14 +1,13 @@
 import {
   attachGroqWordsToSegments,
-  filterHallucinations,
   fmtTsSrt,
   formatSubtitles,
   parseSrtToWords,
   renderSrt,
   renderTxt,
   segmentsToWords,
-} from "./srt-engine.js";
-import { prepareAudioChunks } from "./audio-prep.js";
+} from "./srt-engine.js?v=4";
+import { prepareAudioChunks } from "./audio-prep.js?v=4";
 
 const DEMO_SRT = `1
 00:00:00,000 --> 00:00:07,200
@@ -27,7 +26,7 @@ aparatem.
 Dziękuję za uwagę i do zobaczenia w kolejnym odcinku!
 `;
 
-const GROQ_DIRECT_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
+const ELEVENLABS_MODEL = "scribe_v2";
 
 const cfg = window.SRT_STUDIO_CONFIG || {};
 const WORKER_URL = (cfg.WORKER_URL || "").trim().replace(/\/+$/, "");
@@ -70,8 +69,6 @@ const els = {
   audioDropTitle: $("audioDropTitle"),
   audioDropSub: $("audioDropSub"),
   heroVariantSelector: $("heroVariantSelector"),
-  groqKeyField: $("groqKeyField"),
-  groqKeyInput: $("groqKeyInput"),
   accessModal: $("accessModal"),
   accessModalForm: $("accessModalForm"),
   accessModalInput: $("accessModalInput"),
@@ -79,7 +76,6 @@ const els = {
   accessRememberCheck: $("accessRememberCheck"),
   accessModalCancel: $("accessModalCancel"),
   languageSelect: $("languageSelect"),
-  modelSelect: $("modelSelect"),
   promptInput: $("promptInput"),
   startTranscribeBtn: $("startTranscribeBtn"),
   progressBox: $("progressBox"),
@@ -203,24 +199,16 @@ function showLandingView() {
   window.scrollTo(0, 0);
 }
 
-// ── Init mode (Cloudflare Worker vs BYOK) ────────────────────────────────
+// ── Init mode (Cloudflare Worker + ElevenLabs Scribe v2) ─────────────────
 function initConnectionMode() {
   if (WORKER_URL) {
     els.connectionBadge.textContent = "Chmura 24/7";
-    els.groqKeyField.style.display = "none";
     const savedCode = localStorage.getItem("srt_studio_access_code");
     if (savedCode) state.accessCode = savedCode;
   } else {
-    els.connectionBadge.textContent = "Tryb BYOK";
-    els.groqKeyField.style.display = "flex";
-    const savedKey = localStorage.getItem("srt_studio_groq_key");
-    if (savedKey) els.groqKeyInput.value = savedKey;
+    els.connectionBadge.textContent = "Brak WORKER_URL";
   }
 }
-
-els.groqKeyInput.addEventListener("change", () => {
-  localStorage.setItem("srt_studio_groq_key", els.groqKeyInput.value.trim());
-});
 
 // ── Access Code Modal (przed transkrypcją) ───────────────────────────────
 function openAccessModal(errorMsg = "") {
@@ -320,35 +308,22 @@ function reformatLive() {
   els.liveSyncStatus.textContent = `Przeliczono na żywo (${dt} ms)`;
 }
 
-// ── Cloud Audio Transcription ────────────────────────────────────────────
-async function transcribeChunk(chunk, { model, language, prompt, apiKey, accessCode }) {
+// ── Cloud Audio Transcription (ElevenLabs Scribe v2 przez Worker) ────────
+async function transcribeChunk(chunk, { language, prompt, accessCode }) {
   const form = new FormData();
   form.append("file", chunk.blob, chunk.filename);
-  form.append("model", model);
-  form.append("response_format", "verbose_json");
-  form.append("timestamp_granularities[]", "word");
-  form.append("timestamp_granularities[]", "segment");
-  form.append("temperature", "0");
+  form.append("model", ELEVENLABS_MODEL);
   if (language && language !== "auto") form.append("language", language);
   if (prompt) form.append("prompt", prompt);
 
-  const endpoint = WORKER_URL || GROQ_DIRECT_URL;
   const headers = {};
-  if (WORKER_URL) {
-    if (accessCode) headers["X-Access-Code"] = accessCode;
-  } else {
-    headers["Authorization"] = `Bearer ${apiKey}`;
-  }
+  if (accessCode) headers["X-Access-Code"] = accessCode;
 
-  const res = await fetch(endpoint, { method: "POST", headers, body: form });
+  const res = await fetch(WORKER_URL, { method: "POST", headers, body: form });
   if (!res.ok) {
     const bodyText = await res.text().catch(() => res.statusText);
     if (res.status === 401 || res.status === 403) {
-      const authErr = new Error(
-        WORKER_URL
-          ? "Nieprawidłowe hasło dostępu — spróbuj ponownie."
-          : "Nieprawidłowy klucz Groq API (sprawdź klucz z console.groq.com)."
-      );
+      const authErr = new Error("Nieprawidłowe hasło dostępu — spróbuj ponownie.");
       authErr.isAuthError = true;
       throw authErr;
     }
@@ -360,14 +335,11 @@ async function transcribeChunk(chunk, { model, language, prompt, apiKey, accessC
 async function startAudioTranscription() {
   if (!state.audioFile) return;
 
-  const apiKey = els.groqKeyInput.value.trim();
-
-  if (!WORKER_URL && !apiKey) {
-    showToast("Wpisz swój klucz Groq API (console.groq.com) lub skonfiguruj WORKER_URL.");
-    els.groqKeyInput.focus();
+  if (!WORKER_URL) {
+    showToast("Brak skonfigurowanego WORKER_URL w config.js.");
     return;
   }
-  if (WORKER_URL && REQUIRE_ACCESS_CODE && !state.accessCode) {
+  if (REQUIRE_ACCESS_CODE && !state.accessCode) {
     openAccessModal();
     return;
   }
@@ -379,48 +351,42 @@ async function startAudioTranscription() {
 
   try {
     const chunks = await prepareAudioChunks(state.audioFile, setProgress);
-    const model = els.modelSelect.value;
     const language = els.languageSelect.value;
     const prompt = els.promptInput.value.trim();
 
     const allSegments = [];
+    let lastMeta = null;
     for (let i = 0; i < chunks.length; i++) {
       const pctBase = 32 + Math.round((i / chunks.length) * 55);
-      const isEleven = model.startsWith("scribe_");
-      const engineName = isEleven ? "ElevenLabs Scribe v2" : "Whisper";
       const label =
         chunks.length > 1
-          ? `Transkrypcja fragmentu ${i + 1}/${chunks.length} (${engineName})…`
-          : `Transkrypcja audio (${engineName})…`;
+          ? `Transkrypcja fragmentu ${i + 1}/${chunks.length}…`
+          : `Transkrypcja nagrania…`;
       setProgress(label, pctBase);
 
       const payload = await transcribeChunk(chunks[i], {
-        model,
         language,
         prompt,
-        apiKey,
         accessCode,
       });
+      lastMeta = payload.meta || { provider: payload.provider || "elevenlabs", text_len: (payload.text || "").length };
       allSegments.push(...attachGroqWordsToSegments(payload, chunks[i].offsetSec));
     }
 
     setProgress("Łamanie napisów według wybranych zasad…", 92);
 
     const nonEmpty = allSegments.filter((s) => String(s.text || "").trim());
-    const isElevenModel = model.startsWith("scribe_");
-    // Dla ElevenLabs Scribe nie trzeba agresywnie odrzucać segmentów (model sam nie halucynuje),
-    // a filtr halucynacji Whispera stosujemy głównie dla modeli Whispera.
-    const { cleaned, removed } = isElevenModel
-      ? { cleaned: nonEmpty, removed: [] }
-      : filterHallucinations(nonEmpty);
-    const words = segmentsToWords(cleaned);
+    const words = segmentsToWords(nonEmpty);
 
-    if (!words.length) throw new Error("Nie wykryto mowy w przesłanym pliku.");
+    if (!words.length) {
+      const details = lastMeta ? ` (${JSON.stringify(lastMeta)})` : "";
+      throw new Error(`Nie wykryto mowy w przesłanym pliku${details}.`);
+    }
 
     state.originalFileName = state.audioFile.name;
     state.baseName = safeBaseName(state.audioFile.name);
     state.words = words;
-    state.removedHallucinations = removed;
+    state.removedHallucinations = [];
     state.sourceHadBold = false;
     state.selectedCueIndex = 0;
 
@@ -432,7 +398,7 @@ async function startAudioTranscription() {
     showWorkspaceView();
     showToast(`Gotowe! Wygenerowano ${state.result.report.cue_count} napisów.`);
   } catch (err) {
-    if (err?.isAuthError && WORKER_URL) {
+    if (err?.isAuthError) {
       state.accessCode = "";
       localStorage.removeItem("srt_studio_access_code");
       els.progressBox.style.display = "none";
