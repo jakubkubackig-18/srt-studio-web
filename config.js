@@ -9,5 +9,5 @@
  */
 window.SRT_STUDIO_CONFIG = {
   WORKER_URL: "https://srt-studio-api.jakubkubacki-g.workers.dev",
-  REQUIRE_ACCESS_CODE: false,
+  REQUIRE_ACCESS_CODE: true,
 };

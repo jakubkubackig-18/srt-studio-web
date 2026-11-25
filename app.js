@@ -2,7 +2,6 @@ import {
   attachGroqWordsToSegments,
   filterHallucinations,
   fmtTsSrt,
-  fmtTsTxt,
   formatSubtitles,
   parseSrtToWords,
   renderSrt,
@@ -42,8 +41,9 @@ const state = {
   variant: "horizontal",
   verticalLines: 1,
   customLines: 1,
-  // Aktywny projekt w pamięci przeglądarki
   baseName: "napisy",
+  originalFileName: "napisy.srt",
+  accessCode: "",
   words: null,
   removedHallucinations: [],
   sourceHadBold: false,
@@ -55,8 +55,15 @@ const state = {
 const $ = (id) => document.getElementById(id);
 
 const els = {
+  brandHomeLink: $("brandHomeLink"),
+  landingNav: $("landingNav"),
   connectionBadge: $("connectionBadge"),
   loadDemoBtn: $("loadDemoBtn"),
+  footerDemoBtn: $("footerDemoBtn"),
+  newFileTopBtn: $("newFileTopBtn"),
+  backToUploadBtn: $("backToUploadBtn"),
+  landingView: $("landingView"),
+  workspaceView: $("workspaceView"),
   inputModeTabs: $("inputModeTabs"),
   audioInputPanel: $("audioInputPanel"),
   srtInputPanel: $("srtInputPanel"),
@@ -69,10 +76,15 @@ const els = {
   srtDropTitle: $("srtDropTitle"),
   srtDropSub: $("srtDropSub"),
   srtPasteInput: $("srtPasteInput"),
-  accessCodeField: $("accessCodeField"),
-  accessCodeInput: $("accessCodeInput"),
+  heroVariantSelector: $("heroVariantSelector"),
   groqKeyField: $("groqKeyField"),
   groqKeyInput: $("groqKeyInput"),
+  accessModal: $("accessModal"),
+  accessModalForm: $("accessModalForm"),
+  accessModalInput: $("accessModalInput"),
+  accessModalError: $("accessModalError"),
+  accessRememberCheck: $("accessRememberCheck"),
+  accessModalCancel: $("accessModalCancel"),
   languageSelect: $("languageSelect"),
   modelSelect: $("modelSelect"),
   promptInput: $("promptInput"),
@@ -82,10 +94,13 @@ const els = {
   progressText: $("progressText"),
   progressPct: $("progressPct"),
   progressBar: $("progressBar"),
-  fixesInput: $("fixesInput"),
-  applyFixesBtn: $("applyFixesBtn"),
-  activeRulesList: $("activeRulesList"),
+  // Workspace elements
+  wsFileName: $("wsFileName"),
   variantSelector: $("variantSelector"),
+  toggleParamsBtn: $("toggleParamsBtn"),
+  toggleFixesBtn: $("toggleFixesBtn"),
+  paramsDrawer: $("paramsDrawer"),
+  fixesDrawer: $("fixesDrawer"),
   paramsHorizontal: $("paramsHorizontal"),
   paramsVertical: $("paramsVertical"),
   paramsCustom: $("paramsCustom"),
@@ -108,13 +123,14 @@ const els = {
   cNoGapsCheck: $("cNoGapsCheck"),
   cBoldCheck: $("cBoldCheck"),
   twoLetterOrphansCheck: $("twoLetterOrphansCheck"),
+  fixesInput: $("fixesInput"),
+  applyFixesBtn: $("applyFixesBtn"),
   liveSyncStatus: $("liveSyncStatus"),
-  emptyState: $("emptyState"),
-  resultsContainer: $("resultsContainer"),
   statCues: $("statCues"),
   statWords: $("statWords"),
   statDuration: $("statDuration"),
   statCompleteness: $("statCompleteness"),
+  statWarningsPill: $("statWarningsPill"),
   statWarnings: $("statWarnings"),
   downloadSrtBtn: $("downloadSrtBtn"),
   downloadTxtBtn: $("downloadTxtBtn"),
@@ -170,16 +186,35 @@ function setProgress(msg, pct) {
   els.progressBar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
 }
 
+// ── View switching (Landing <-> Workspace) ───────────────────────────────
+function showWorkspaceView() {
+  els.landingView.style.display = "none";
+  els.workspaceView.style.display = "block";
+  els.landingNav.style.display = "none";
+  els.loadDemoBtn.style.display = "none";
+  els.newFileTopBtn.style.display = "inline-flex";
+  window.scrollTo(0, 0);
+}
+
+function showLandingView() {
+  els.workspaceView.style.display = "none";
+  els.landingView.style.display = "block";
+  els.landingNav.style.display = "";
+  els.loadDemoBtn.style.display = "inline-flex";
+  els.newFileTopBtn.style.display = "none";
+  els.progressBox.style.display = "none";
+  window.scrollTo(0, 0);
+}
+
 // ── Init mode (Cloudflare Worker vs BYOK) ────────────────────────────────
 function initConnectionMode() {
   if (WORKER_URL) {
-    els.connectionBadge.textContent = "● Chmura 24/7 gotowa (Groq)";
+    els.connectionBadge.textContent = "Chmura 24/7";
     els.groqKeyField.style.display = "none";
-    els.accessCodeField.style.display = REQUIRE_ACCESS_CODE ? "flex" : "none";
     const savedCode = localStorage.getItem("srt_studio_access_code");
-    if (savedCode) els.accessCodeInput.value = savedCode;
+    if (savedCode) state.accessCode = savedCode;
   } else {
-    els.connectionBadge.textContent = "● Tryb przeglądarkowy (własny klucz Groq)";
+    els.connectionBadge.textContent = "Tryb BYOK";
     els.groqKeyField.style.display = "flex";
     const savedKey = localStorage.getItem("srt_studio_groq_key");
     if (savedKey) els.groqKeyInput.value = savedKey;
@@ -190,11 +225,48 @@ els.groqKeyInput.addEventListener("change", () => {
   localStorage.setItem("srt_studio_groq_key", els.groqKeyInput.value.trim());
 });
 
-els.accessCodeInput.addEventListener("change", () => {
-  localStorage.setItem("srt_studio_access_code", els.accessCodeInput.value.trim());
+// ── Access Code Modal (przed transkrypcją) ───────────────────────────────
+function openAccessModal(errorMsg = "") {
+  els.accessModalError.textContent = errorMsg;
+  els.accessModalError.style.display = errorMsg ? "block" : "none";
+  els.accessModalInput.value = "";
+  els.accessModal.style.display = "grid";
+  requestAnimationFrame(() => els.accessModalInput.focus());
+}
+
+function closeAccessModal() {
+  els.accessModal.style.display = "none";
+}
+
+els.accessModalCancel.addEventListener("click", closeAccessModal);
+els.accessModal.addEventListener("click", (e) => {
+  if (e.target === els.accessModal) closeAccessModal();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && els.accessModal.style.display !== "none") {
+    closeAccessModal();
+  }
 });
 
-// ── Options collector ────────────────────────────────────────────────────
+els.accessModalForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const entered = els.accessModalInput.value.trim();
+  if (!entered) {
+    els.accessModalError.textContent = "Wpisz hasło dostępu.";
+    els.accessModalError.style.display = "block";
+    return;
+  }
+  state.accessCode = entered;
+  if (els.accessRememberCheck.checked) {
+    localStorage.setItem("srt_studio_access_code", entered);
+  } else {
+    localStorage.removeItem("srt_studio_access_code");
+  }
+  closeAccessModal();
+  startAudioTranscription();
+});
+
+// ── Options & Variant Sync ───────────────────────────────────────────────
 function collectFormatOptions() {
   let boldMode = "auto";
   if (state.variant === "horizontal") boldMode = els.hBoldMode.value;
@@ -224,45 +296,22 @@ function collectFormatOptions() {
   };
 }
 
-function updateRulesSummary() {
-  const common = [
-    "Nigdy nie dzieli wyrazów myślnikiem (nawet długich złożeń).",
-    els.twoLetterOrphansCheck.checked
-      ? "Sieroty (<strong>i, z, w, a, o, u</strong> oraz <strong>na, do, ze, że, to, od, po</strong>) przechodzą z następnym słowem."
-      : "Sieroty (<strong>i, z, w, a, o, u</strong>) nigdy nie kończą linii ani cue.",
-    "Zdanie kończy cue; brak luk do limitu pauzy (<code>max-hold</code>).",
-  ];
-  if (state.variant === "horizontal") {
-    common.unshift(
-      `<strong>POZIOM 16:9:</strong> maks. ${els.hMaxWords.value} słów, min. ${parseFloat(els.hMinDur.value).toFixed(1)} s, 1 linia (Resolve łamie sam), bez ogryzków.`
-    );
-  } else if (state.variant === "vertical") {
-    common.unshift(
-      `<strong>PION 9:16:</strong> ${state.verticalLines} ${state.verticalLines === 1 ? "linia" : "linie"}, maks. ${els.vMaxChars.value} znaków ze spacjami, zasady poziomu nie obowiązują.`
-    );
-  } else {
-    common.unshift(
-      `<strong>WŁASNY:</strong> ${state.customLines} ${state.customLines === 1 ? "linia" : "linie"}, maks. ${els.cMaxWords.value} słów/linię.`
-    );
-  }
-  els.activeRulesList.innerHTML = common.map((item) => `<li>${item}</li>`).join("");
-}
-
 function setVariant(v, triggerReformat = true) {
   state.variant = v;
-  els.variantSelector.querySelectorAll(".variant-card").forEach((card) => {
-    card.classList.toggle("active", card.dataset.variant === v);
+  els.heroVariantSelector.querySelectorAll(".tier-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.variant === v);
+  });
+  els.variantSelector.querySelectorAll(".vpill").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.variant === v);
   });
   els.paramsHorizontal.style.display = v === "horizontal" ? "flex" : "none";
   els.paramsVertical.style.display = v === "vertical" ? "flex" : "none";
   els.paramsCustom.style.display = v === "custom" ? "flex" : "none";
-  updateRulesSummary();
   if (triggerReformat && state.words) {
     reformatLive();
   }
 }
 
-// ── Instant local reformat (< 5 ms!) ─────────────────────────────────────
 function reformatLive() {
   if (!state.words) return;
   const t0 = performance.now();
@@ -271,10 +320,10 @@ function reformatLive() {
   els.editedBadge.style.display = "none";
   renderResults();
   const dt = Math.max(1, Math.round(performance.now() - t0));
-  els.liveSyncStatus.textContent = `✓ Przeliczono na żywo (${dt} ms)`;
+  els.liveSyncStatus.textContent = `Przeliczono na żywo (${dt} ms)`;
 }
 
-// ── Cloud Audio Transcription (Cloudflare Worker lub bezpośrednie Groq API) ──
+// ── Cloud Audio Transcription ────────────────────────────────────────────
 async function transcribeChunk(chunk, { model, language, prompt, apiKey, accessCode }) {
   const form = new FormData();
   form.append("file", chunk.blob, chunk.filename);
@@ -283,12 +332,8 @@ async function transcribeChunk(chunk, { model, language, prompt, apiKey, accessC
   form.append("timestamp_granularities[]", "word");
   form.append("timestamp_granularities[]", "segment");
   form.append("temperature", "0");
-  if (language && language !== "auto") {
-    form.append("language", language);
-  }
-  if (prompt) {
-    form.append("prompt", prompt);
-  }
+  if (language && language !== "auto") form.append("language", language);
+  if (prompt) form.append("prompt", prompt);
 
   const endpoint = WORKER_URL || GROQ_DIRECT_URL;
   const headers = {};
@@ -298,24 +343,20 @@ async function transcribeChunk(chunk, { model, language, prompt, apiKey, accessC
     headers["Authorization"] = `Bearer ${apiKey}`;
   }
 
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers,
-    body: form,
-  });
-
+  const res = await fetch(endpoint, { method: "POST", headers, body: form });
   if (!res.ok) {
     const bodyText = await res.text().catch(() => res.statusText);
     if (res.status === 401 || res.status === 403) {
-      throw new Error(
+      const authErr = new Error(
         WORKER_URL
-          ? "Nieprawidłowy kod dostępu lub brak konfiguracji GROQ_API_KEY w Cloudflare Workerze."
+          ? "Nieprawidłowe hasło dostępu — spróbuj ponownie."
           : "Nieprawidłowy klucz Groq API (sprawdź klucz z console.groq.com)."
       );
+      authErr.isAuthError = true;
+      throw authErr;
     }
-    throw new Error(`Błąd API (${res.status}): ${bodyText.slice(0, 260)}`);
+    throw new Error(`Błąd API (${res.status}): ${bodyText.slice(0, 240)}`);
   }
-
   return res.json();
 }
 
@@ -323,21 +364,21 @@ async function startAudioTranscription() {
   if (!state.audioFile) return;
 
   const apiKey = els.groqKeyInput.value.trim();
-  const accessCode = els.accessCodeInput.value.trim();
 
   if (!WORKER_URL && !apiKey) {
-    showToast("Wpisz swój darmowy klucz Groq API (console.groq.com) albo skonfiguruj WORKER_URL.");
+    showToast("Wpisz swój klucz Groq API (console.groq.com) lub skonfiguruj WORKER_URL.");
     els.groqKeyInput.focus();
     return;
   }
-  if (WORKER_URL && REQUIRE_ACCESS_CODE && !accessCode) {
-    showToast("Wpisz kod dostępu.");
-    els.accessCodeInput.focus();
+  if (WORKER_URL && REQUIRE_ACCESS_CODE && !state.accessCode) {
+    openAccessModal();
     return;
   }
 
+  const accessCode = state.accessCode;
+
   els.startTranscribeBtn.disabled = true;
-  setProgress("Przygotowanie pliku audio…", 8);
+  setProgress("Przygotowanie pliku audio…", 10);
 
   try {
     const chunks = await prepareAudioChunks(state.audioFile, setProgress);
@@ -350,8 +391,8 @@ async function startAudioTranscription() {
       const pctBase = 32 + Math.round((i / chunks.length) * 55);
       const label =
         chunks.length > 1
-          ? `Transkrypcja fragmentu ${i + 1}/${chunks.length} (Groq ${model})…`
-          : `Transkrypcja audio w chmurze (Groq ${model})…`;
+          ? `Transkrypcja fragmentu ${i + 1}/${chunks.length}…`
+          : `Transkrypcja audio (Groq Whisper)…`;
       setProgress(label, pctBase);
 
       const payload = await transcribeChunk(chunks[i], {
@@ -361,8 +402,7 @@ async function startAudioTranscription() {
         apiKey,
         accessCode,
       });
-      const segs = attachGroqWordsToSegments(payload, chunks[i].offsetSec);
-      allSegments.push(...segs);
+      allSegments.push(...attachGroqWordsToSegments(payload, chunks[i].offsetSec));
     }
 
     setProgress("Filtrowanie halucynacji i budowanie napisów…", 92);
@@ -371,10 +411,9 @@ async function startAudioTranscription() {
     const { cleaned, removed } = filterHallucinations(nonEmpty);
     const words = segmentsToWords(cleaned);
 
-    if (!words.length) {
-      throw new Error("Nie wykryto mowy w przesłanym pliku.");
-    }
+    if (!words.length) throw new Error("Nie wykryto mowy w przesłanym pliku.");
 
+    state.originalFileName = state.audioFile.name;
     state.baseName = safeBaseName(state.audioFile.name);
     state.words = words;
     state.removedHallucinations = removed;
@@ -384,18 +423,26 @@ async function startAudioTranscription() {
     if (state.audioObjectUrl) URL.revokeObjectURL(state.audioObjectUrl);
     state.audioObjectUrl = URL.createObjectURL(state.audioFile);
 
+    setProgress("Gotowe!", 100);
     reformatLive();
-    setProgress(`Gotowe — ${state.result.report.cue_count} napisów`, 100);
+    showWorkspaceView();
     showToast(`Gotowe! Wygenerowano ${state.result.report.cue_count} napisów.`);
   } catch (err) {
-    setProgress(`Błąd: ${err.message}`, 0);
-    showToast(err.message);
+    if (err?.isAuthError && WORKER_URL) {
+      state.accessCode = "";
+      localStorage.removeItem("srt_studio_access_code");
+      els.progressBox.style.display = "none";
+      openAccessModal(err.message);
+    } else {
+      setProgress(`Błąd: ${err.message}`, 0);
+      showToast(err.message);
+    }
   } finally {
     els.startTranscribeBtn.disabled = false;
   }
 }
 
-// ── Existing SRT import (100% lokalnie w przeglądarce) ───────────────────
+// ── Existing SRT Import ──────────────────────────────────────────────────
 async function processExistingSrt(customText = null, customName = null) {
   let content = "";
   let fname = customName || "napisy.srt";
@@ -419,6 +466,7 @@ async function processExistingSrt(customText = null, customName = null) {
     return;
   }
 
+  state.originalFileName = fname;
   state.baseName = safeBaseName(fname);
   state.words = words;
   state.removedHallucinations = [];
@@ -431,35 +479,39 @@ async function processExistingSrt(customText = null, customName = null) {
   }
 
   reformatLive();
+  showWorkspaceView();
   showToast(`Przełamano SRT (${state.result.report.cue_count} napisów)`);
 }
 
-// ── Rendering ────────────────────────────────────────────────────────────
+// ── Rendering Workspace ──────────────────────────────────────────────────
 function getActiveCues() {
   return state.editedCues || state.result?.cues || [];
 }
 
 function renderResults() {
   if (!state.result) return;
-  els.emptyState.style.display = "none";
-  els.resultsContainer.style.display = "block";
-
   const report = state.result.report;
   const cues = getActiveCues();
 
+  els.wsFileName.textContent = state.originalFileName;
   els.statCues.textContent = cues.length;
   els.statWords.textContent = report.word_count;
   els.statDuration.textContent = report.total_duration_str;
-  els.statCompleteness.textContent = report.completeness_ok ? "✓ 100%" : "⚠ Sprawdź";
-  els.statCompleteness.className = report.completeness_ok ? "ok" : "warn";
-  els.statWarnings.textContent = report.warnings_count;
-  els.statWarnings.className = report.warnings_count > 0 ? "warn" : "ok";
+  els.statCompleteness.textContent = report.completeness_ok ? "✓ 100% słów" : "⚠ Sprawdź słowa";
+  els.statCompleteness.className = report.completeness_ok ? "pill-ok" : "pill-warn";
+
+  if (report.warnings_count > 0) {
+    els.statWarningsPill.style.display = "inline";
+    els.statWarnings.textContent = report.warnings_count;
+  } else {
+    els.statWarningsPill.style.display = "none";
+  }
 
   const suffixMap = { horizontal: "poziom", vertical: "pion", custom: "wlasny" };
-  els.downloadSrtBtn.textContent = `⬇ Pobierz _${suffixMap[state.variant]}.srt`;
+  els.downloadSrtBtn.textContent = `Pobierz _${suffixMap[state.variant]}.srt`;
 
   if (state.audioObjectUrl) {
-    els.audioPlayerCard.style.display = "flex";
+    els.audioPlayerCard.style.display = "block";
     if (els.audioPlayer.src !== state.audioObjectUrl) {
       els.audioPlayer.src = state.audioObjectUrl;
     }
@@ -481,7 +533,7 @@ function renderQAReport(report) {
 
   if (report.warnings.length === 0) {
     els.qaBadge.textContent = "Wszystko OK";
-    els.qaBadge.className = "qa-badge qa-ok";
+    els.qaBadge.className = "qa-pill qa-ok";
     items.push({
       type: "ok",
       text: "Brak błędów limitu znaków, sierot ani zbyt krótkich cue.",
@@ -489,7 +541,7 @@ function renderQAReport(report) {
     });
   } else {
     els.qaBadge.textContent = `${report.warnings.length} do sprawdzenia`;
-    els.qaBadge.className = "qa-badge qa-warn";
+    els.qaBadge.className = "qa-pill qa-warn";
     for (const w of report.warnings) {
       items.push({
         type: "warn",
@@ -502,7 +554,7 @@ function renderQAReport(report) {
 
   if (report.applied_fixes?.length) {
     const txt = report.applied_fixes.map((f) => `„${f.from}” → „${f.to}” (×${f.count})`).join(", ");
-    items.push({ type: "ok", text: `Zastosowane korekty: ${txt}`, tc: "FIX" });
+    items.push({ type: "ok", text: `Korekty: ${txt}`, tc: "FIX" });
   }
 
   if (report.unmatched_fixes?.length) {
@@ -523,10 +575,7 @@ function renderQAReport(report) {
   if (report.removed_hallucinations?.length) {
     items.push({
       type: "info",
-      text: `Odfiltrowano halucynacji Whispera: ${report.removed_hallucinations.length} (${report.removed_hallucinations
-        .slice(0, 2)
-        .map((h) => `„${h.text}”`)
-        .join(", ")})`,
+      text: `Odfiltrowano halucynacji Whispera: ${report.removed_hallucinations.length}`,
       tc: "ASR",
     });
   }
@@ -534,7 +583,7 @@ function renderQAReport(report) {
   if (report.estimated_timings) {
     items.push({
       type: "info",
-      text: "Czasy cięć w środku oryginalnych linii szacowane proporcjonalnie — sprawdź na timeline (25 fps).",
+      text: "Czasy cięć w środku oryginalnych linii są szacowane proporcjonalnie — sprawdź na timeline (25 fps).",
       tc: "INFO",
     });
   }
@@ -575,7 +624,7 @@ function renderCueEditor(cues, useBold) {
     row.innerHTML = `
       <div class="cue-num">
         <span>#${idx + 1}</span>
-        ${state.audioObjectUrl ? `<button class="play-cue-btn" title="Odtwórz od tego momentu">▶</button>` : ""}
+        ${state.audioObjectUrl ? `<button type="button" class="play-cue-btn" title="Odtwórz od tego momentu">▶</button>` : ""}
       </div>
       <div class="cue-times">
         <span>${fmtTsSrt(cue.start)}</span>
@@ -604,18 +653,23 @@ function renderCueEditor(cues, useBold) {
     }
 
     const ta = row.querySelector(".cue-editor-input");
+    const autoSizeTa = () => {
+      ta.style.height = "auto";
+      ta.style.height = `${ta.scrollHeight}px`;
+    };
     ta.addEventListener("input", () => {
       if (!state.editedCues) {
         state.editedCues = state.result.cues.map((c) => ({ ...c }));
       }
       state.editedCues[idx].text = ta.value;
-      ta.rows = Math.max(1, ta.value.split("\n").length);
+      autoSizeTa();
       els.editedBadge.style.display = "inline-flex";
       updateMonitor(idx);
       renderRawViews(state.editedCues, state.result.use_bold);
     });
 
     els.viewEditor.appendChild(row);
+    requestAnimationFrame(autoSizeTa);
   });
 }
 
@@ -641,7 +695,7 @@ function updateMonitor(idx) {
     els.monitorMeta.textContent = ratioLabel;
     return;
   }
-  els.monitorMeta.textContent = `${ratioLabel} · Cue #${idx + 1} (${cue.duration.toFixed(2)}s)`;
+  els.monitorMeta.textContent = `${ratioLabel} · #${idx + 1} (${cue.duration.toFixed(1)}s)`;
   els.monitorSubtitle.textContent = cue.text;
   els.monitorSubtitle.classList.toggle("is-bold", Boolean(state.result?.use_bold));
 }
@@ -686,6 +740,12 @@ function exportFormat(fmt) {
 // ── Dropzones & Events ───────────────────────────────────────────────────
 function bindDropzone(zoneEl, inputEl, onFile) {
   zoneEl.addEventListener("click", () => inputEl.click());
+  zoneEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      inputEl.click();
+    }
+  });
   zoneEl.addEventListener("dragover", (e) => {
     e.preventDefault();
     zoneEl.classList.add("drag-over");
@@ -703,7 +763,7 @@ function bindDropzone(zoneEl, inputEl, onFile) {
 
 function setInputMode(mode) {
   state.inputMode = mode;
-  els.inputModeTabs.querySelectorAll(".seg-btn").forEach((b) => {
+  els.inputModeTabs.querySelectorAll(".mode-pill").forEach((b) => {
     b.classList.toggle("active", b.dataset.mode === mode);
   });
   els.audioInputPanel.style.display = mode === "audio" ? "flex" : "none";
@@ -723,7 +783,7 @@ bindDropzone(els.audioDropzone, els.audioFileInput, (file) => {
   state.audioFile = file;
   els.audioDropzone.classList.add("has-file");
   els.audioDropTitle.textContent = `✓ ${file.name}`;
-  els.audioDropSub.textContent = `${formatBytes(file.size)} · kliknij, aby zmienić`;
+  els.audioDropSub.textContent = `${formatBytes(file.size)} · gotowy do transkrypcji`;
   els.startTranscribeBtn.disabled = false;
 });
 
@@ -731,31 +791,59 @@ bindDropzone(els.srtDropzone, els.srtFileInput, (file) => {
   state.srtFile = file;
   els.srtDropzone.classList.add("has-file");
   els.srtDropTitle.textContent = `✓ ${file.name}`;
-  els.srtDropSub.textContent = `${formatBytes(file.size)} · kliknij, aby zmienić`;
+  els.srtDropSub.textContent = `${formatBytes(file.size)} · kliknij przycisk poniżej, aby przełamać`;
 });
 
 els.inputModeTabs.addEventListener("click", (e) => {
-  const btn = e.target.closest(".seg-btn");
+  const btn = e.target.closest(".mode-pill");
   if (btn) setInputMode(btn.dataset.mode);
+});
+
+els.heroVariantSelector.addEventListener("click", (e) => {
+  const btn = e.target.closest(".tier-btn");
+  if (btn) setVariant(btn.dataset.variant, false);
+});
+
+els.variantSelector.addEventListener("click", (e) => {
+  const btn = e.target.closest(".vpill");
+  if (btn) setVariant(btn.dataset.variant, true);
+});
+
+// Drawers (Dostosuj zasady / Korekty --fix)
+els.toggleParamsBtn.addEventListener("click", () => {
+  const open = els.paramsDrawer.style.display === "none";
+  els.paramsDrawer.style.display = open ? "block" : "none";
+  els.fixesDrawer.style.display = "none";
+  els.toggleParamsBtn.classList.toggle("active-toggle", open);
+  els.toggleFixesBtn.classList.remove("active-toggle");
+});
+
+els.toggleFixesBtn.addEventListener("click", () => {
+  const open = els.fixesDrawer.style.display === "none";
+  els.fixesDrawer.style.display = open ? "block" : "none";
+  els.paramsDrawer.style.display = "none";
+  els.toggleFixesBtn.classList.toggle("active-toggle", open);
+  els.toggleParamsBtn.classList.remove("active-toggle");
 });
 
 els.startTranscribeBtn.addEventListener("click", startAudioTranscription);
 els.processSrtBtn.addEventListener("click", () => processExistingSrt());
 
-els.variantSelector.addEventListener("click", (e) => {
-  const card = e.target.closest(".variant-card");
-  if (card) setVariant(card.dataset.variant, true);
+// Navigation back to upload
+els.backToUploadBtn.addEventListener("click", showLandingView);
+els.newFileTopBtn.addEventListener("click", showLandingView);
+els.brandHomeLink.addEventListener("click", (e) => {
+  e.preventDefault();
+  showLandingView();
 });
 
-// Live sliders & controls
+// Live parameter controls
 els.hMaxWords.addEventListener("input", () => {
   els.hMaxWordsVal.textContent = els.hMaxWords.value;
-  updateRulesSummary();
   reformatLive();
 });
 els.hMinDur.addEventListener("input", () => {
   els.hMinDurVal.textContent = `${parseFloat(els.hMinDur.value).toFixed(1)} s`;
-  updateRulesSummary();
   reformatLive();
 });
 els.hMaxHold.addEventListener("input", () => {
@@ -767,11 +855,10 @@ els.hMaxHold.addEventListener("input", () => {
 els.hBoldMode.addEventListener("change", reformatLive);
 
 els.vLinesToggle.addEventListener("click", (e) => {
-  const btn = e.target.closest(".pill-btn");
+  const btn = e.target.closest(".mini-seg-btn");
   if (!btn) return;
   state.verticalLines = parseInt(btn.dataset.val, 10);
-  els.vLinesToggle.querySelectorAll(".pill-btn").forEach((b) => b.classList.toggle("active", b === btn));
-  updateRulesSummary();
+  els.vLinesToggle.querySelectorAll(".mini-seg-btn").forEach((b) => b.classList.toggle("active", b === btn));
   reformatLive();
 });
 
@@ -780,7 +867,6 @@ els.vMaxChars.addEventListener("input", () => {
   document.querySelectorAll('.preset-btn[data-target="vMaxChars"]').forEach((b) => {
     b.classList.toggle("active", b.dataset.val === els.vMaxChars.value);
   });
-  updateRulesSummary();
   reformatLive();
 });
 els.vMaxHold.addEventListener("input", () => {
@@ -792,11 +878,10 @@ els.vMaxHold.addEventListener("input", () => {
 els.vBoldCheck.addEventListener("change", reformatLive);
 
 els.cLinesToggle.addEventListener("click", (e) => {
-  const btn = e.target.closest(".pill-btn");
+  const btn = e.target.closest(".mini-seg-btn");
   if (!btn) return;
   state.customLines = parseInt(btn.dataset.val, 10);
-  els.cLinesToggle.querySelectorAll(".pill-btn").forEach((b) => b.classList.toggle("active", b === btn));
-  updateRulesSummary();
+  els.cLinesToggle.querySelectorAll(".mini-seg-btn").forEach((b) => b.classList.toggle("active", b === btn));
   reformatLive();
 });
 
@@ -807,15 +892,11 @@ els.cMaxWords.addEventListener("input", () => {
   document.querySelectorAll('.preset-btn[data-target="cMaxWords"]').forEach((b) => {
     b.classList.toggle("active", b.dataset.val === els.cMaxWords.value);
   });
-  updateRulesSummary();
   reformatLive();
 });
 els.cNoGapsCheck.addEventListener("change", reformatLive);
 els.cBoldCheck.addEventListener("change", reformatLive);
-els.twoLetterOrphansCheck.addEventListener("change", () => {
-  updateRulesSummary();
-  reformatLive();
-});
+els.twoLetterOrphansCheck.addEventListener("change", reformatLive);
 
 document.querySelectorAll(".preset-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -830,16 +911,14 @@ els.applyFixesBtn.addEventListener("click", () => {
   if (state.words) {
     reformatLive();
     showToast("Zastosowano korekty transkryptu");
-  } else {
-    showToast("Korekty zostaną zastosowane po transkrypcji lub wczytaniu SRT");
   }
 });
 
 els.viewTabs.addEventListener("click", (e) => {
-  const btn = e.target.closest(".seg-btn");
+  const btn = e.target.closest(".mini-seg-btn");
   if (!btn) return;
   const v = btn.dataset.view;
-  els.viewTabs.querySelectorAll(".seg-btn").forEach((b) => b.classList.toggle("active", b === btn));
+  els.viewTabs.querySelectorAll(".mini-seg-btn").forEach((b) => b.classList.toggle("active", b === btn));
   els.viewEditor.style.display = v === "editor" ? "flex" : "none";
   els.viewSrt.style.display = v === "srt" ? "block" : "none";
   els.viewTxt.style.display = v === "txt" ? "block" : "none";
@@ -871,13 +950,15 @@ els.audioPlayer.addEventListener("timeupdate", () => {
   }
 });
 
-els.loadDemoBtn.addEventListener("click", () => {
+function loadDemo() {
   els.fixesInput.value =
-    "IBMI => i BMI\ntwarzy czaszki => twarzoczaszki\nortodonatycznej => ortognatycznej";
+    "IBMI. => i BMI.\ntwarzy czaszki => twarzoczaszki\nortodonatycznej => ortognatycznej";
   setVariant("vertical", false);
   processExistingSrt(DEMO_SRT, "demo_ortodonta.srt");
-});
+}
+
+els.loadDemoBtn.addEventListener("click", loadDemo);
+els.footerDemoBtn.addEventListener("click", loadDemo);
 
 // Boot
 initConnectionMode();
-updateRulesSummary();
