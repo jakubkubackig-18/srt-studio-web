@@ -8,6 +8,6 @@
  *    pozwala przełamywać istniejące pliki .srt bez żadnego klucza.
  */
 window.SRT_STUDIO_CONFIG = {
-  WORKER_URL: "",
+  WORKER_URL: "https://srt-studio-api.jakubkubacki-g.workers.dev",
   REQUIRE_ACCESS_CODE: false,
 };
