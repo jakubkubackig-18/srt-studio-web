@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SRT Studio — Transkrypcja Whisper i Napisy POZIOM 16:9 / PION 9:16</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">SRT</div>
+      <div>
+        <div class="brand-name">SRT Studio</div>
+        <div class="brand-sub">Transkrypcja Whisper · Łamanie napisów POZIOM 16:9 &amp; PION 9:16</div>
+      </div>
+    </div>
+
+    <div class="topbar-actions">
+      <span id="connectionBadge" class="status-pill">Ładowanie…</span>
+      <button id="loadDemoBtn" class="btn btn-ghost" title="Załaduj przykładowy tekst i przetestuj zasady POZIOM vs PION">
+        ⚡ Załaduj demo (ortodonta)
+      </button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <!-- ─────────────────── LEWA KOLUMNA: WEJŚCIE I SILNIK ─────────────────── -->
+    <aside class="sidebar">
+      <section class="card">
+        <div class="segmented" id="inputModeTabs">
+          <button class="seg-btn active" data-mode="audio">🎙 Audio / Wideo</button>
+          <button class="seg-btn" data-mode="srt">📄 Przełam istniejący .SRT</button>
+        </div>
+
+        <!-- Panel: AUDIO / WIDEO -->
+        <div id="audioInputPanel" class="panel-body">
+          <div id="audioDropzone" class="dropzone">
+            <input type="file" id="audioFileInput" accept=".mp3,.wav,.m4a,.aac,.flac,.ogg,.mp4,.mov,.webm" hidden />
+            <div class="drop-icon">🎧</div>
+            <div class="drop-title" id="audioDropTitle">Przeciągnij plik audio lub wideo</div>
+            <div class="drop-sub" id="audioDropSub">MP3, WAV, M4A, MP4, MOV · ścieżka audio wyciągana w przeglądarce</div>
+          </div>
+
+          <div class="form-grid">
+            <!-- Widoczne gdy w config.js ustawiono REQUIRE_ACCESS_CODE: true -->
+            <label class="field" id="accessCodeField" style="display:none;">
+              <span>Kod dostępu <small>(hasło dla testerów)</small></span>
+              <input type="password" id="accessCodeInput" placeholder="Wpisz kod dostępu…" autocomplete="off" />
+            </label>
+
+            <!-- Widoczne automatycznie gdy WORKER_URL w config.js jest pusty (tryb BYOK) -->
+            <label class="field" id="groqKeyField" style="display:none;">
+              <span>Groq API Key <small>(zapisany tylko lokalnie w tej przeglądarce)</small></span>
+              <input type="password" id="groqKeyInput" placeholder="gsk_… (darmowy klucz z console.groq.com)" autocomplete="off" />
+            </label>
+
+            <div class="row-2">
+              <label class="field">
+                <span>Język</span>
+                <select id="languageSelect">
+                  <option value="pl" selected>Polski</option>
+                  <option value="auto">Auto-detect</option>
+                  <option value="en">English</option>
+                  <option value="de">Deutsch</option>
+                  <option value="uk">Українська</option>
+                  <option value="fr">Français</option>
+                  <option value="es">Español</option>
+                  <option value="it">Italiano</option>
+                  <option value="ru">Русский</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Model Whisper</span>
+                <select id="modelSelect">
+                  <option value="whisper-large-v3" selected>large-v3 (najlepszy PL)</option>
+                  <option value="whisper-large-v3-turbo">large-v3-turbo (najszybszy)</option>
+                </select>
+              </label>
+            </div>
+
+            <label class="field">
+              <span>Słownik / nazwy własne <small>(podpowiedź dla Whispera)</small></span>
+              <input type="text" id="promptInput" placeholder="np. Authologic, polisomnografia, twarzoczaszki, DaVinci Resolve" />
+            </label>
+          </div>
+
+          <button id="startTranscribeBtn" class="btn btn-primary btn-full" disabled>
+            ▶ Rozpocznij transkrypcję
+          </button>
+
+          <div id="progressBox" class="progress-box" style="display:none;">
+            <div class="progress-head">
+              <span id="progressText">Przetwarzanie…</span>
+              <span id="progressPct">0%</span>
+            </div>
+            <div class="progress-track">
+              <div id="progressBar" class="progress-fill" style="width:0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel: ISTNIEJĄCY SRT -->
+        <div id="srtInputPanel" class="panel-body" style="display:none;">
+          <div id="srtDropzone" class="dropzone dropzone-sm">
+            <input type="file" id="srtFileInput" accept=".srt,.txt" hidden />
+            <div class="drop-title" id="srtDropTitle">Wybierz lub przeciągnij plik .srt</div>
+            <div class="drop-sub" id="srtDropSub">np. eksport z DaVinci Resolve, Whispera lub YouTube (działa 100% offline)</div>
+          </div>
+
+          <label class="field">
+            <span>Lub wklej treść SRT bezpośrednio</span>
+            <textarea id="srtPasteInput" rows="6" placeholder="1&#10;00:00:00,000 --> 00:00:04,500&#10;Jeśli czeka Cię seria rezonansów magnetycznych..."></textarea>
+          </label>
+
+          <button id="processSrtBtn" class="btn btn-primary btn-full">
+            ✂️ Przełam napisy SRT
+          </button>
+        </div>
+      </section>
+
+      <!-- Korekty transkryptu (--fix) -->
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <h3>Korekty transkryptu <span class="mono-tag">--fix</span></h3>
+            <p class="hint">Format: <code>błędnie =&gt; poprawnie</code> (działa też na granicach cue)</p>
+          </div>
+        </div>
+        <textarea
+          id="fixesInput"
+          rows="4"
+          class="mono-area"
+          placeholder="IBMI => i BMI&#10;twarzy czaszki => twarzoczaszki&#10;ortodonatycznej => ortognatycznej"
+        ></textarea>
+        <div class="card-footer-row">
+          <span class="hint-sm" id="fixesStatus">Przelicza w &lt;5 ms bez powtórnej transkrypcji</span>
+          <button id="applyFixesBtn" class="btn btn-secondary btn-sm">Zastosuj korekty</button>
+        </div>
+      </section>
+
+      <!-- Ściąga zasad -->
+      <section class="card card-muted">
+        <h3 class="small-title">Aktywne zasady redakcyjne</h3>
+        <ul class="rules-list" id="activeRulesList"></ul>
+      </section>
+    </aside>
+
+    <!-- ─────────────────── PRAWA KOLUMNA: WARSZTAT NAPISÓW ─────────────────── -->
+    <section class="studio">
+      <!-- Wybór wariantu (POZIOM / PION / WŁASNY) -->
+      <div class="variant-grid" id="variantSelector">
+        <button class="variant-card active" data-variant="horizontal">
+          <div class="variant-top">
+            <span class="aspect-chip aspect-16-9">16:9</span>
+            <strong>POZIOM</strong>
+            <span class="variant-tag">YouTube · Resolve</span>
+          </div>
+          <p>Maks. 13 słów, min. 2 s, 1 linia (Resolve łamie sam), brak ogryzków i luk.</p>
+        </button>
+
+        <button class="variant-card" data-variant="vertical">
+          <div class="variant-top">
+            <span class="aspect-chip aspect-9-16">9:16</span>
+            <strong>PION</strong>
+            <span class="variant-tag">Rolki · Shorts · TikTok</span>
+          </div>
+          <p>1–2 linie, maks. 16 znaków/linię, domyślnie <code>&lt;b&gt;</code>, twarda ochrona sierot.</p>
+        </button>
+
+        <button class="variant-card" data-variant="custom">
+          <div class="variant-top">
+            <span class="aspect-chip aspect-custom">N</span>
+            <strong>WŁASNY</strong>
+            <span class="variant-tag">Słowa / linie</span>
+          </div>
+          <p>Klasyczny podział słowny (1–2 linie, 1–15 słów w linii, naturalne pauzy).</p>
+        </button>
+      </div>
+
+      <!-- Parametry kontekstowe (tylko dla wybranego wariantu!) -->
+      <section class="card params-card">
+        <!-- Parametry POZIOM -->
+        <div id="paramsHorizontal" class="params-row">
+          <div class="param-item">
+            <div class="param-head">
+              <span>Maks. słów / cue</span>
+              <strong id="hMaxWordsVal">13</strong>
+            </div>
+            <input type="range" id="hMaxWords" min="6" max="20" step="1" value="13" />
+          </div>
+
+          <div class="param-item">
+            <div class="param-head">
+              <span>Min. czas / cue</span>
+              <strong id="hMinDurVal">2.0 s</strong>
+            </div>
+            <input type="range" id="hMinDur" min="1.0" max="4.0" step="0.1" value="2.0" />
+          </div>
+
+          <div class="param-item">
+            <div class="param-head">
+              <span>Pauza (max-hold)</span>
+              <strong id="hMaxHoldVal">5.0 s</strong>
+            </div>
+            <input type="range" id="hMaxHold" min="1.5" max="10.0" step="0.5" value="5.0" />
+          </div>
+
+          <div class="param-item param-compact">
+            <span>Pogrubienie <code>&lt;b&gt;</code></span>
+            <select id="hBoldMode">
+              <option value="auto" selected>Auto (jak w źródle)</option>
+              <option value="yes">Tak (&lt;b&gt;)</option>
+              <option value="no">Nie</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Parametry PION -->
+        <div id="paramsVertical" class="params-row" style="display:none;">
+          <div class="param-item param-compact">
+            <span>Liczba linii</span>
+            <div class="pill-toggle" id="vLinesToggle">
+              <button class="pill-btn active" data-val="1">1 linia</button>
+              <button class="pill-btn" data-val="2">2 linie</button>
+            </div>
+          </div>
+
+          <div class="param-item param-wide">
+            <div class="param-head">
+              <span>Maks. znaków / linię (ze spacjami)</span>
+              <strong id="vMaxCharsVal">16 zn.</strong>
+            </div>
+            <input type="range" id="vMaxChars" min="10" max="32" step="1" value="16" />
+            <div class="presets">
+              <button class="preset-btn" data-target="vMaxChars" data-val="14">14</button>
+              <button class="preset-btn active" data-target="vMaxChars" data-val="16">16</button>
+              <button class="preset-btn" data-target="vMaxChars" data-val="20">20</button>
+              <button class="preset-btn" data-target="vMaxChars" data-val="24">24</button>
+            </div>
+          </div>
+
+          <div class="param-item">
+            <div class="param-head">
+              <span>Pauza (max-hold)</span>
+              <strong id="vMaxHoldVal">5.0 s</strong>
+            </div>
+            <input type="range" id="vMaxHold" min="1.5" max="10.0" step="0.5" value="5.0" />
+          </div>
+
+          <div class="param-item param-compact">
+            <span>Tagi <code>&lt;b&gt;</code></span>
+            <label class="switch-row">
+              <input type="checkbox" id="vBoldCheck" checked />
+              <span>Domyślnie &lt;b&gt;</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Parametry WŁASNY -->
+        <div id="paramsCustom" class="params-row" style="display:none;">
+          <div class="param-item param-compact">
+            <span>Liczba linii</span>
+            <div class="pill-toggle" id="cLinesToggle">
+              <button class="pill-btn active" data-val="1">1 linia</button>
+              <button class="pill-btn" data-val="2">2 linie</button>
+            </div>
+          </div>
+
+          <div class="param-item param-wide">
+            <div class="param-head">
+              <span>Maks. słów / linię</span>
+              <strong id="cMaxWordsVal">5 słów</strong>
+            </div>
+            <input type="range" id="cMaxWords" min="1" max="15" step="1" value="5" />
+            <div class="presets">
+              <button class="preset-btn" data-target="cMaxWords" data-val="2">2</button>
+              <button class="preset-btn" data-target="cMaxWords" data-val="3">3</button>
+              <button class="preset-btn" data-target="cMaxWords" data-val="4">4</button>
+              <button class="preset-btn active" data-target="cMaxWords" data-val="5">5</button>
+              <button class="preset-btn" data-target="cMaxWords" data-val="7">7</button>
+              <button class="preset-btn" data-target="cMaxWords" data-val="10">10</button>
+            </div>
+          </div>
+
+          <div class="param-item param-compact">
+            <span>Format</span>
+            <label class="switch-row">
+              <input type="checkbox" id="cNoGapsCheck" checked />
+              <span>Bez luk</span>
+            </label>
+            <label class="switch-row">
+              <input type="checkbox" id="cBoldCheck" />
+              <span>Tagi &lt;b&gt;</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="params-footer">
+          <label class="switch-row">
+            <input type="checkbox" id="twoLetterOrphansCheck" />
+            <span>Chroń też sieroty 2-literowe (<code>na, do, ze, że, to, od, po</code>)</span>
+          </label>
+          <span class="live-indicator" id="liveSyncStatus">Zmiana parametrów odświeża napisy natychmiast</span>
+        </div>
+      </section>
+
+      <!-- Stan pusty -->
+      <section id="emptyState" class="card empty-state">
+        <div class="empty-icon">🎬</div>
+        <h2>Gotowe do transkrypcji i łamania napisów</h2>
+        <p>
+          Wrzuć plik audio/wideo po lewej (błyskawiczna transkrypcja Whisper Large V3 w chmurze),
+          przełam istniejący plik <code>.srt</code> z DaVinci Resolve albo kliknij <strong>Załaduj demo</strong> u góry,
+          żeby od razu przetestować wariant <strong>POZIOM 16:9</strong> i <strong>PION 9:16</strong>.
+        </p>
+      </section>
+
+      <!-- Obszar wyników -->
+      <div id="resultsContainer" style="display:none;">
+        <section class="card toolbar-card">
+          <div class="stats-strip">
+            <div class="stat">
+              <span class="stat-label">Napisów (cue)</span>
+              <strong id="statCues">0</strong>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Słów</span>
+              <strong id="statWords">0</strong>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Czas</span>
+              <strong id="statDuration">[00:00]</strong>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Kompletność</span>
+              <strong id="statCompleteness" class="ok">100%</strong>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Do sprawdzenia</span>
+              <strong id="statWarnings">0</strong>
+            </div>
+          </div>
+
+          <div class="export-actions">
+            <button id="downloadSrtBtn" class="btn btn-primary">⬇ Pobierz .SRT</button>
+            <button id="downloadTxtBtn" class="btn btn-secondary">⬇ .TXT (z czasami)</button>
+            <button id="downloadTxtPlainBtn" class="btn btn-ghost">⬇ .TXT (czysty)</button>
+            <button id="copySrtBtn" class="btn btn-ghost">📋 Kopiuj SRT</button>
+          </div>
+        </section>
+
+        <section id="audioPlayerCard" class="card player-card" style="display:none;">
+          <audio id="audioPlayer" controls preload="metadata"></audio>
+          <span class="hint-sm">Kliknij ▶ przy dowolnym napisie, aby odsłuchać dokładnie ten moment</span>
+        </section>
+
+        <div class="preview-qa-grid">
+          <section class="card monitor-card">
+            <div class="monitor-header">
+              <span>Podgląd kadru</span>
+              <span id="monitorMeta" class="mono-tag">16:9 · Cue #1</span>
+            </div>
+            <div class="monitor-stage">
+              <div id="monitorFrame" class="monitor-frame ratio-16-9">
+                <div class="safe-zone"></div>
+                <div id="monitorSubtitle" class="monitor-subtitle">Wybierz napis z listy…</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="card qa-card">
+            <div class="monitor-header">
+              <span>Raport jakości (QA)</span>
+              <span id="qaBadge" class="qa-badge qa-ok">OK</span>
+            </div>
+            <div id="qaList" class="qa-list"></div>
+          </section>
+        </div>
+
+        <section class="card editor-card">
+          <div class="editor-tabs">
+            <div class="segmented segmented-inline" id="viewTabs">
+              <button class="seg-btn active" data-view="editor">✏️ Edytor napisów</button>
+              <button class="seg-btn" data-view="srt">📄 Surowy SRT</button>
+              <button class="seg-btn" data-view="txt">📝 Transkrypt TXT</button>
+            </div>
+            <div id="editedBadge" class="edited-badge" style="display:none;">
+              Zmodyfikowano ręcznie · <button id="resetEditsBtn" class="link-btn">Przywróć automatyczne</button>
+            </div>
+          </div>
+
+          <div id="viewEditor" class="cue-list"></div>
+
+          <div id="viewSrt" class="raw-view" style="display:none;">
+            <pre id="rawSrtPre"></pre>
+          </div>
+
+          <div id="viewTxt" class="raw-view" style="display:none;">
+            <pre id="rawTxtPre"></pre>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="./config.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
