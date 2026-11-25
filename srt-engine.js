@@ -31,13 +31,28 @@ export const HARD_HALLUCINATION_SUBSTRINGS = [
   "napisy stworzone przez",
   "napisy przygotował",
   "napisy wykonał",
+  "napisy opracował",
+  "napisy by",
+  "napisy pl",
+  "polskie napisy",
+  "jacek makarewicz",
   "tłumaczenie i napisy",
+  "tłumaczenie napisów",
+  "korekta napisów",
   "subtitles by",
   "captioned by",
   "transcribed by",
   "mbc 뉴스",
   "ご視聴ありがとうございました",
   "시청해주셔서 감사합니다",
+];
+
+// Frazy często doklejane przez Whispera na początku/końcu segmentu po długiej ciszy w filmach
+const HALLUCINATION_PREFIX_PATTERNS = [
+  /^\s*(?:dzięki|dziękuję)(?:\s+bardzo)?\s+za\s+(?:oglądanie|uwagę)[!.…,\s]*/i,
+  /^\s*(?:zapraszam\s+do\s+subskrypcji|subskrybuj(?:\s+kanał)?)[!.…,\s]*/i,
+  /^\s*(?:napisy\s+by\s+[^.!?\n]+)[!.…,\s]*/i,
+  /^\s*(?:thanks?\s+you?\s+for\s+watching)[!.…,\s]*/i,
 ];
 
 export const SILENCE_HALLUCINATION_PHRASES = new Set([
@@ -47,6 +62,19 @@ export const SILENCE_HALLUCINATION_PHRASES = new Set([
   "thank you", "thank you very much", "thank you for watching", "thanks for watching",
   "please subscribe", "subscribe", "bye", "bye bye", "you",
   "muzyka", "music", "applause", "brawa", "śmiech", "cisza",
+]);
+
+// Frazy YouTube'owe halucynowane w dialogach nawet przy niskim no_speech_prob
+const STRONG_OUTRO_HALLUCINATIONS = new Set([
+  "dzięki za oglądanie",
+  "dziękuję za oglądanie",
+  "dziękuję za oglądanie mojego filmu",
+  "dzięki za oglądanie mojego filmu",
+  "zapraszam do subskrypcji",
+  "subskrybuj kanał",
+  "polub i subskrybuj",
+  "thank you for watching",
+  "thanks for watching",
 ]);
 
 const SENTENCE_END_CHARS = [".", "?", "!", "…"];
@@ -165,11 +193,12 @@ export function filterHallucinations(segments) {
   let lastNorm = null;
   let repeatStreak = 0;
 
-  for (const seg of segments || []) {
-    const text = String(seg.text || "").trim();
+  for (const origSeg of segments || []) {
+    let seg = { ...origSeg };
+    let text = String(seg.text || "").trim();
     if (!text) continue;
 
-    const norm = normalizeText(text);
+    let norm = normalizeText(text);
     const start = Number(seg.start || 0);
     const end = Number(seg.end ?? start);
 
@@ -182,7 +211,7 @@ export function filterHallucinations(segments) {
     const avgLogprob = Number(seg.avg_logprob || 0);
     const compRatio = Number(seg.compression_ratio || 0);
 
-    if (noSpeech >= 0.8 || (noSpeech >= 0.6 && avgLogprob <= -0.8)) {
+    if (noSpeech >= 0.75 || (noSpeech >= 0.52 && avgLogprob <= -0.75)) {
       removed.push({ start, end, text, reason: `cisza (no_speech=${noSpeech.toFixed(2)})` });
       continue;
     }
@@ -192,7 +221,31 @@ export function filterHallucinations(segments) {
       continue;
     }
 
-    if (SILENCE_HALLUCINATION_PHRASES.has(norm) && (noSpeech >= 0.45 || avgLogprob <= -0.65)) {
+    if (STRONG_OUTRO_HALLUCINATIONS.has(norm)) {
+      removed.push({ start, end, text, reason: "halucynacja YouTube w ciszy" });
+      continue;
+    }
+
+    // Usuń doklejony przez Whispera prefiks typu "Dzięki za oglądanie!" przed właściwym dialogiem
+    for (const rx of HALLUCINATION_PREFIX_PATTERNS) {
+      const m = text.match(rx);
+      if (m && m[0].length < text.length) {
+        const prefixWords = m[0].trim().split(/\s+/).filter(Boolean).length;
+        const remainder = text.slice(m[0].length).trim();
+        if (remainder) {
+          removed.push({ start, end: start, text: m[0].trim(), reason: "halucynowany prefiks" });
+          text = remainder;
+          seg.text = remainder;
+          if (Array.isArray(seg.words) && seg.words.length > prefixWords) {
+            seg.words = seg.words.slice(prefixWords);
+            seg.start = Number(seg.words[0].start ?? seg.start);
+          }
+          norm = normalizeText(text);
+        }
+      }
+    }
+
+    if (SILENCE_HALLUCINATION_PHRASES.has(norm) && (noSpeech >= 0.35 || avgLogprob <= -0.55)) {
       removed.push({ start, end, text, reason: "fraza halucynowana w ciszy" });
       continue;
     }
@@ -263,11 +316,14 @@ export function attachGroqWordsToSegments(payload, timeOffset = 0) {
       : [],
   }));
 
-  const topWords = (payload.words || []).map((w) => ({
-    ...w,
-    start: Number(w.start || 0) + timeOffset,
-    end: Number(w.end || 0) + timeOffset,
-  }));
+  const topWords = (payload.words || [])
+    .filter((w) => w && (!w.type || w.type === "word") && String(w.word ?? w.text ?? "").trim())
+    .map((w) => ({
+      ...w,
+      word: String(w.word ?? w.text ?? "").trim(),
+      start: Number(w.start || 0) + timeOffset,
+      end: Number(w.end ?? w.start ?? 0) + timeOffset,
+    }));
 
   if (topWords.length && segments.length) {
     let wIdx = 0;
@@ -326,12 +382,21 @@ export function segmentsToWords(segments) {
     }
   }
 
-  for (let i = 1; i < tokens.length; i++) {
-    if (tokens[i].start < tokens[i - 1].start) {
+  // Zapewnij monotoniczność startów i przytnij nienaturalnie rozciągnięte czasy pojedynczych słów
+  // (Whisper w dialogach z długą ciszą potrafi rozciągnąć word.end na 10-30 s w głąb ciszy)
+  for (let i = 0; i < tokens.length; i++) {
+    if (i > 0 && tokens[i].start < tokens[i - 1].start) {
       tokens[i].start = tokens[i - 1].start;
     }
+    const maxWordDur = Math.max(1.6, Math.min(3.2, tokens[i].text.length * 0.22));
+    if (tokens[i].end - tokens[i].start > maxWordDur) {
+      tokens[i].end = tokens[i].start + maxWordDur;
+    }
     if (tokens[i].end < tokens[i].start) {
-      tokens[i].end = tokens[i].start + 0.05;
+      tokens[i].end = tokens[i].start + 0.08;
+    }
+    if (i > 0 && tokens[i - 1].end > tokens[i].start) {
+      tokens[i - 1].end = Math.max(tokens[i - 1].start + 0.05, tokens[i].start);
     }
   }
 
@@ -515,18 +580,20 @@ function applyNoGapsAndHold(rawCues, maxHold) {
 
   for (let i = 0; i < rawCues.length; i++) {
     const c = rawCues[i];
-    const spokenEnd = c.spoken_end;
+    const spokenEnd = Math.max(c.start + 0.1, c.spoken_end);
     if (i + 1 < rawCues.length) {
       let nxtStart = rawCues[i + 1].start;
       if (nxtStart < c.start + 0.1) {
         nxtStart = c.start + 0.1;
         rawCues[i + 1].start = nxtStart;
       }
-      const gap = nxtStart - spokenEnd;
+      const clampedSpokenEnd = Math.min(spokenEnd, nxtStart);
+      const gap = nxtStart - clampedSpokenEnd;
       if (gap <= maxHold) {
-        c.end = Math.max(spokenEnd, nxtStart);
+        // Ścisły brak luk i zero nakładania się: c.end === nxtStart
+        c.end = nxtStart;
       } else {
-        c.end = spokenEnd + maxHold;
+        c.end = Math.min(nxtStart, clampedSpokenEnd + maxHold);
         silences.push({
           start: round3(c.end),
           end: round3(nxtStart),

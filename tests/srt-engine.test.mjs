@@ -149,3 +149,53 @@ test("Filtr halucynacji i łączenie słów Groq z offsetem", () => {
   assert.equal(words[0].text, "Test");
   assert.equal(words[0].start, 14.0);
 });
+
+test("Polskie halucynacje filmowe (Jacek Makarewicz, prefiks Dzięki za oglądanie) + brak nakładania i rozciągniętych czasów", () => {
+  const segs = [
+    {
+      start: 59.98,
+      end: 63.0,
+      text: "Dzięki za oglądanie! Niech to się nie zakończy.",
+      words: [
+        { word: "Dzięki", start: 59.98, end: 60.3 },
+        { word: "za", start: 60.3, end: 60.5 },
+        { word: "oglądanie!", start: 60.5, end: 60.9 },
+        { word: "Niech", start: 61.0, end: 61.4 },
+        { word: "to", start: 61.4, end: 61.6 },
+        { word: "się", start: 61.6, end: 61.8 },
+        { word: "nie", start: 61.8, end: 62.1 },
+        { word: "zakończy.", start: 62.1, end: 62.8 },
+      ],
+    },
+    { start: 181.0, end: 186.0, text: "Napisy by Jacek Makarewicz Dla" },
+    { start: 231.0, end: 265.0, text: "Dzięki za oglądanie!" },
+    {
+      start: 270.0,
+      end: 300.0,
+      text: "Czekaj.",
+      words: [{ word: "Czekaj.", start: 270.0, end: 299.5 }],
+    },
+    {
+      start: 271.5,
+      end: 273.5,
+      text: "Chodź tutaj!",
+      words: [
+        { word: "Chodź", start: 271.5, end: 272.2 },
+        { word: "tutaj!", start: 272.2, end: 273.0 },
+      ],
+    },
+  ];
+  const { cleaned, removed } = filterHallucinations(segs);
+  assert.equal(cleaned.length, 3);
+  assert.ok(removed.length >= 3);
+  assert.equal(cleaned[0].text, "Niech to się nie zakończy.");
+
+  const words = segmentsToWords(cleaned);
+  const res = formatSubtitles(words, { variant: "horizontal", maxHold: 5.0 });
+  // Zero nakładania się czasów
+  for (let i = 0; i + 1 < res.cues.length; i++) {
+    assert.ok(res.cues[i].end <= res.cues[i + 1].start + 0.001);
+  }
+  // Pojedyncze słowo "Czekaj." nie trwa 30 sekund
+  assert.ok(res.cues.every((c) => c.duration <= 10.0));
+});

@@ -160,7 +160,12 @@ function formatBytes(bytes) {
 
 function safeBaseName(filename) {
   const clean = String(filename || "napisy").replace(/\.[^.]+$/, "");
-  return clean.replace(/[^\w\-.ąćęłńóśźżĄĆĘŁŃÓŚŹŻ ]+/g, "_").trim() || "napisy";
+  return (
+    clean
+      .replace(/[^\w\-.ąćęłńóśźżĄĆĘŁŃÓŚŹŻ ]+/g, "_")
+      .replace(/[\s_]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "napisy"
+  );
 }
 
 function escapeHtml(str) {
@@ -381,10 +386,12 @@ async function startAudioTranscription() {
     const allSegments = [];
     for (let i = 0; i < chunks.length; i++) {
       const pctBase = 32 + Math.round((i / chunks.length) * 55);
+      const isEleven = model.startsWith("scribe_");
+      const engineName = isEleven ? "ElevenLabs Scribe v2" : "Whisper";
       const label =
         chunks.length > 1
-          ? `Transkrypcja fragmentu ${i + 1}/${chunks.length}…`
-          : `Transkrypcja audio (Groq Whisper)…`;
+          ? `Transkrypcja fragmentu ${i + 1}/${chunks.length} (${engineName})…`
+          : `Transkrypcja audio (${engineName})…`;
       setProgress(label, pctBase);
 
       const payload = await transcribeChunk(chunks[i], {
@@ -397,10 +404,15 @@ async function startAudioTranscription() {
       allSegments.push(...attachGroqWordsToSegments(payload, chunks[i].offsetSec));
     }
 
-    setProgress("Filtrowanie halucynacji i budowanie napisów…", 92);
+    setProgress("Łamanie napisów według wybranych zasad…", 92);
 
     const nonEmpty = allSegments.filter((s) => String(s.text || "").trim());
-    const { cleaned, removed } = filterHallucinations(nonEmpty);
+    const isElevenModel = model.startsWith("scribe_");
+    // Dla ElevenLabs Scribe nie trzeba agresywnie odrzucać segmentów (model sam nie halucynuje),
+    // a filtr halucynacji Whispera stosujemy głównie dla modeli Whispera.
+    const { cleaned, removed } = isElevenModel
+      ? { cleaned: nonEmpty, removed: [] }
+      : filterHallucinations(nonEmpty);
     const words = segmentsToWords(cleaned);
 
     if (!words.length) throw new Error("Nie wykryto mowy w przesłanym pliku.");

@@ -45,7 +45,7 @@
         <div class="hero-eyebrow">🇵🇱 Zoptymalizowane pod język polski</div>
         <h1 class="hero-title">Transkrybuj nagrania, łam tekst pod pion i&nbsp;poziom, napisy w&nbsp;SRT</h1>
         <p class="hero-sub">
-          Dokładna transkrypcja Whisper oraz automatyczne łamanie napisów po polsku, zredukuj ilość ręcznych poprawek. Napisy gotowe pod YouTube&nbsp;16:9 i&nbsp;Rolki&nbsp;9:16.
+          Dokładna transkrypcja AI oraz automatyczne łamanie napisów po polsku, zredukuj ilość ręcznych poprawek. Napisy gotowe pod YouTube&nbsp;16:9 i&nbsp;Rolki&nbsp;9:16.
         </p>
 
         <!-- Główna wycentrowana karta uploadu -->
@@ -112,7 +112,8 @@
               <div class="field-group">
                 <label class="field-label" for="modelSelect">Tryb transkrypcji</label>
                 <select id="modelSelect" class="select-clean">
-                  <option value="whisper-large-v3" selected>Dokładny</option>
+                  <option value="scribe_v2" selected>Dokładny (ElevenLabs Scribe v2)</option>
+                  <option value="whisper-large-v3">Standardowy (Whisper)</option>
                   <option value="whisper-large-v3-turbo">Szybki (kiedy audio jest wyraźne)</option>
                 </select>
               </div>
